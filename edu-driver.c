@@ -18,7 +18,7 @@
 #define PCI_DEVICE_ID_QEMU_EDU 0x11e8
 
 // The number of bits be changed in QEMU via '-device edu,dma_mask=<mask>'
-#define EDU_DMA_BITS 28
+#define EDU_DMA_BITS 64
 #define EDU_DMA_BUF_DEVICE_OFFSET 0x40000
 #define EDU_DMA_CMD_START_XFER    1
 #define EDU_DMA_CMD_RAM_TO_DEVICE 0
@@ -157,26 +157,24 @@ static bool is_doing_dma(struct edu_device *dev) {
 }
 
 static int do_dma(struct edu_device *dev, u32 len, bool to_device) {
-    u32 src, dst, cmd;
+    u64 src, dst, cmd;
     if (len == 0 || len > EDU_DMA_BUF_SIZE) {
         return -EINVAL;
     }
-    if (dev->dma_bus_addr > ~(u32)0) {
-        pr_warn("DMA bus addr is greater than 32 bits, cannot use writel\n");
-        return -EOPNOTSUPP;
-    }
     if (to_device) {
-        src = (u32)dev->dma_bus_addr;
+        src = (u64)dev->dma_bus_addr;
         dst = EDU_DMA_BUF_DEVICE_OFFSET;
         cmd = EDU_DMA_CMD_START_XFER | EDU_DMA_CMD_RAM_TO_DEVICE | EDU_DMA_CMD_RAISE_IRQ;
     } else {
         src = EDU_DMA_BUF_DEVICE_OFFSET;
-        dst = (u32)dev->dma_bus_addr;
+        dst = (u64)dev->dma_bus_addr;
         cmd = EDU_DMA_CMD_START_XFER | EDU_DMA_CMD_DEVICE_TO_RAM | EDU_DMA_CMD_RAISE_IRQ;
     }
-    edu_log("src=0x%08x dst=0x%08x len=%u\n", src, dst, len);
-    writel(src, dev->iomem + EDU_ADDR_DMA_SRC);
-    writel(dst, dev->iomem + EDU_ADDR_DMA_DST);
+    edu_log("src=0x%016lx dst=0x%016lx len=%u\n", src, dst, len);
+    writel(lower_32_bits(src), dev->iomem + EDU_ADDR_DMA_SRC);
+    writel(upper_32_bits(src), dev->iomem + EDU_ADDR_DMA_SRC + 4);
+    writel(lower_32_bits(dst), dev->iomem + EDU_ADDR_DMA_DST);
+    writel(upper_32_bits(dst), dev->iomem + EDU_ADDR_DMA_DST + 4);
     writel(len, dev->iomem + EDU_ADDR_DMA_XFER);
     writel(cmd, dev->iomem + EDU_ADDR_DMA_CMD);
     if (wait_event_interruptible(dev->irq_wait_queue, !is_doing_dma(dev))) {
