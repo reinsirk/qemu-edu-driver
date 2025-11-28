@@ -14,47 +14,49 @@
 #include "edu.h"
 
 // See https://github.com/qemu/qemu/blob/stable-7.2/docs/specs/edu.txt
-#define PCI_VENDOR_ID_QEMU     0x1234
+#define PCI_VENDOR_ID_QEMU 0x1234
 #define PCI_DEVICE_ID_QEMU_EDU 0x11e8
 
 // The number of bits be changed in QEMU via '-device edu,dma_mask=<mask>'
 #define EDU_DMA_BITS 64
 #define EDU_DMA_BUF_DEVICE_OFFSET 0x40000
-#define EDU_DMA_CMD_START_XFER    1
+#define EDU_DMA_CMD_START_XFER 1
 #define EDU_DMA_CMD_RAM_TO_DEVICE 0
 #define EDU_DMA_CMD_DEVICE_TO_RAM 2
-#define EDU_DMA_CMD_RAISE_IRQ     4
+#define EDU_DMA_CMD_RAISE_IRQ 4
 #define EDU_STATUS_COMPUTING 0x01
 #define EDU_STATUS_RAISE_IRQ 0x80
 
-#define EDU_ADDR_IDENT      0x0
-#define EDU_ADDR_LIVENESS   0x04
-#define EDU_ADDR_FACTORIAL  0x08
-#define EDU_ADDR_STATUS     0x20
+#define EDU_ADDR_IDENT 0x0
+#define EDU_ADDR_LIVENESS 0x04
+#define EDU_ADDR_FACTORIAL 0x08
+#define EDU_ADDR_STATUS 0x20
 #define EDU_ADDR_IRQ_STATUS 0x24
-#define EDU_ADDR_IRQ_RAISE  0x60
-#define EDU_ADDR_IRQ_ACK    0x64
-#define EDU_ADDR_DMA_SRC    0x80
-#define EDU_ADDR_DMA_DST    0x88
-#define EDU_ADDR_DMA_XFER   0x90
-#define EDU_ADDR_DMA_CMD    0x98
+#define EDU_ADDR_IRQ_RAISE 0x60
+#define EDU_ADDR_IRQ_ACK 0x64
+#define EDU_ADDR_DMA_SRC 0x80
+#define EDU_ADDR_DMA_DST 0x88
+#define EDU_ADDR_DMA_XFER 0x90
+#define EDU_ADDR_DMA_CMD 0x98
 
 static const struct pci_device_id edu_pci_tbl[] = {
-    { PCI_DEVICE(PCI_VENDOR_ID_QEMU, PCI_DEVICE_ID_QEMU_EDU) },
-    { }
-};
+    {PCI_DEVICE(PCI_VENDOR_ID_QEMU, PCI_DEVICE_ID_QEMU_EDU)},
+    {}};
 
 // e.g. insmod edu.ko debug=1
 // e.g. echo 1 > /sys/module/edu/parameters/debug
 static bool param_debug;
 module_param_named(debug, param_debug, bool, S_IRUGO | S_IWUSR);
-#define edu_log(...) if (param_debug) pr_info(__VA_ARGS__)
+#define edu_log(...) \
+    if (param_debug) \
+    pr_info(__VA_ARGS__)
 
 // Load with msi=1 to use MSI instead of INTx
 static bool param_msi;
 module_param_named(msi, param_msi, bool, S_IRUGO);
 
-struct edu_device {
+struct edu_device
+{
     bool registered_irq_handler;
     bool added_cdev;
     struct cdev cdev;
@@ -70,7 +72,8 @@ static dev_t devno;
 static const int minor = 0;
 static struct edu_device *edu_dev;
 
-static int edu_open(struct inode *inode, struct file *filp) {
+static int edu_open(struct inode *inode, struct file *filp)
+{
     struct edu_device *dev;
 
     nonseekable_open(inode, filp);
@@ -79,19 +82,23 @@ static int edu_open(struct inode *inode, struct file *filp) {
     return 0;
 }
 
-static int edu_release(struct inode *inode, struct file *filp) {
+static int edu_release(struct inode *inode, struct file *filp)
+{
     return 0;
 }
 
-static int edu_mmap(struct file *filp, struct vm_area_struct *vma) {
+static int edu_mmap(struct file *filp, struct vm_area_struct *vma)
+{
     struct edu_device *dev = filp->private_data;
     unsigned long len = vma->vm_end - vma->vm_start;
 
-    if (len > EDU_DMA_BUF_SIZE) {
+    if (len > EDU_DMA_BUF_SIZE)
+    {
         return -EINVAL;
     }
     // Only allow offset=0
-    if (vma->vm_pgoff) {
+    if (vma->vm_pgoff)
+    {
         return -EINVAL;
     }
     vma->vm_page_prot = pgprot_noncached(vma->vm_page_prot);
@@ -99,14 +106,17 @@ static int edu_mmap(struct file *filp, struct vm_area_struct *vma) {
     return vm_iomap_memory(vma, __pa(dev->dma_virt_addr), len);
 }
 
-static int ioctl_ident(struct edu_device *dev, u32 __user *arg) {
+static int ioctl_ident(struct edu_device *dev, u32 __user *arg)
+{
     u32 val = readl(dev->iomem + EDU_ADDR_IDENT);
     return put_user(val, arg);
 }
 
-static int ioctl_liveness(struct edu_device *dev, u32 __user *arg) {
+static int ioctl_liveness(struct edu_device *dev, u32 __user *arg)
+{
     u32 val;
-    if (get_user(val, arg)) {
+    if (get_user(val, arg))
+    {
         return -EFAULT;
     }
     writel(val, dev->iomem + EDU_ADDR_LIVENESS);
@@ -114,20 +124,24 @@ static int ioctl_liveness(struct edu_device *dev, u32 __user *arg) {
     return put_user(val, arg);
 }
 
-static bool is_computing_factorial(struct edu_device *dev) {
+static bool is_computing_factorial(struct edu_device *dev)
+{
     return readl(dev->iomem + EDU_ADDR_STATUS) & EDU_STATUS_COMPUTING;
 }
 
-static int ioctl_factorial(struct edu_device *dev, u32 __user *arg) {
+static int ioctl_factorial(struct edu_device *dev, u32 __user *arg)
+{
     u32 val;
-    if (get_user(val, arg)) {
+    if (get_user(val, arg))
+    {
         return -EFAULT;
     }
     // raise interrupt after finishing factorial computation
     writel(EDU_STATUS_RAISE_IRQ, dev->iomem + EDU_ADDR_STATUS);
     edu_log("Writing %u to register\n", val);
     writel(val, dev->iomem + EDU_ADDR_FACTORIAL);
-    if (wait_event_interruptible(dev->irq_wait_queue, !is_computing_factorial(dev))) {
+    if (wait_event_interruptible(dev->irq_wait_queue, !is_computing_factorial(dev)))
+    {
         return -ERESTARTSYS;
     }
     // read result
@@ -136,36 +150,45 @@ static int ioctl_factorial(struct edu_device *dev, u32 __user *arg) {
     return put_user(val, arg);
 }
 
-static int ioctl_wait_irq(struct edu_device *dev, u32 __user *arg) {
+static int ioctl_wait_irq(struct edu_device *dev, u32 __user *arg)
+{
     DEFINE_WAIT(wait);
     prepare_to_wait(&dev->irq_wait_queue, &wait, TASK_INTERRUPTIBLE);
     schedule();
     finish_wait(&dev->irq_wait_queue, &wait);
-    if (signal_pending(current)) {
+    if (signal_pending(current))
+    {
         return -ERESTARTSYS;
     }
     return put_user(READ_ONCE(dev->irq_value), arg);
 }
 
-static int ioctl_raise_irq(struct edu_device *dev, u32 arg) {
+static int ioctl_raise_irq(struct edu_device *dev, u32 arg)
+{
     writel(arg, dev->iomem + EDU_ADDR_IRQ_RAISE);
     return 0;
 }
 
-static bool is_doing_dma(struct edu_device *dev) {
+static bool is_doing_dma(struct edu_device *dev)
+{
     return readl(dev->iomem + EDU_ADDR_DMA_CMD) & EDU_DMA_CMD_START_XFER;
 }
 
-static int do_dma(struct edu_device *dev, u32 len, bool to_device) {
+static int do_dma(struct edu_device *dev, u32 len, bool to_device)
+{
     u64 src, dst, cmd;
-    if (len == 0 || len > EDU_DMA_BUF_SIZE) {
+    if (len == 0 || len > EDU_DMA_BUF_SIZE)
+    {
         return -EINVAL;
     }
-    if (to_device) {
+    if (to_device)
+    {
         src = (u64)dev->dma_bus_addr;
         dst = EDU_DMA_BUF_DEVICE_OFFSET;
         cmd = EDU_DMA_CMD_START_XFER | EDU_DMA_CMD_RAM_TO_DEVICE | EDU_DMA_CMD_RAISE_IRQ;
-    } else {
+    }
+    else
+    {
         src = EDU_DMA_BUF_DEVICE_OFFSET;
         dst = (u64)dev->dma_bus_addr;
         cmd = EDU_DMA_CMD_START_XFER | EDU_DMA_CMD_DEVICE_TO_RAM | EDU_DMA_CMD_RAISE_IRQ;
@@ -177,39 +200,44 @@ static int do_dma(struct edu_device *dev, u32 len, bool to_device) {
     writel(upper_32_bits(dst), dev->iomem + EDU_ADDR_DMA_DST + 4);
     writel(len, dev->iomem + EDU_ADDR_DMA_XFER);
     writel(cmd, dev->iomem + EDU_ADDR_DMA_CMD);
-    if (wait_event_interruptible(dev->irq_wait_queue, !is_doing_dma(dev))) {
+    if (wait_event_interruptible(dev->irq_wait_queue, !is_doing_dma(dev)))
+    {
         return -ERESTARTSYS;
     }
     return 0;
 }
 
-static int ioctl_dma_to_device(struct edu_device *dev, u32 arg) {
+static int ioctl_dma_to_device(struct edu_device *dev, u32 arg)
+{
     return do_dma(dev, arg, true);
 }
 
-static int ioctl_dma_from_device(struct edu_device *dev, u32 arg) {
+static int ioctl_dma_from_device(struct edu_device *dev, u32 arg)
+{
     return do_dma(dev, arg, false);
 }
 
-static long edu_ioctl(struct file *filp, unsigned int cmd, unsigned long arg) {
+static long edu_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
+{
     struct edu_device *dev = filp->private_data;
-    switch (cmd) {
-        case EDU_IOCTL_IDENT:
-            return ioctl_ident(dev, (u32 __user*)arg);
-        case EDU_IOCTL_LIVENESS:
-            return ioctl_liveness(dev, (u32 __user*)arg);
-        case EDU_IOCTL_FACTORIAL:
-            return ioctl_factorial(dev, (u32 __user*)arg);
-        case EDU_IOCTL_WAIT_IRQ:
-            return ioctl_wait_irq(dev, (u32 __user*)arg);
-        case EDU_IOCTL_RAISE_IRQ:
-            return ioctl_raise_irq(dev, (u32)arg);
-        case EDU_IOCTL_DMA_TO_DEVICE:
-            return ioctl_dma_to_device(dev, (u32)arg);
-        case EDU_IOCTL_DMA_FROM_DEVICE:
-            return ioctl_dma_from_device(dev, (u32)arg);
-        default:
-            return -ENOTTY;
+    switch (cmd)
+    {
+    case EDU_IOCTL_IDENT:
+        return ioctl_ident(dev, (u32 __user *)arg);
+    case EDU_IOCTL_LIVENESS:
+        return ioctl_liveness(dev, (u32 __user *)arg);
+    case EDU_IOCTL_FACTORIAL:
+        return ioctl_factorial(dev, (u32 __user *)arg);
+    case EDU_IOCTL_WAIT_IRQ:
+        return ioctl_wait_irq(dev, (u32 __user *)arg);
+    case EDU_IOCTL_RAISE_IRQ:
+        return ioctl_raise_irq(dev, (u32)arg);
+    case EDU_IOCTL_DMA_TO_DEVICE:
+        return ioctl_dma_to_device(dev, (u32)arg);
+    case EDU_IOCTL_DMA_FROM_DEVICE:
+        return ioctl_dma_from_device(dev, (u32)arg);
+    default:
+        return -ENOTTY;
     }
 }
 
@@ -221,13 +249,15 @@ struct file_operations edu_fops = {
     .mmap = edu_mmap,
 };
 
-static void edu_dev_init(struct edu_device *dev) {
+static void edu_dev_init(struct edu_device *dev)
+{
     cdev_init(&dev->cdev, &edu_fops);
     dev->cdev.owner = THIS_MODULE;
     init_waitqueue_head(&dev->irq_wait_queue);
 }
 
-static irqreturn_t edu_irq_handler(int irq, void *dev_id) {
+static irqreturn_t edu_irq_handler(int irq, void *dev_id)
+{
     struct edu_device *dev = dev_id;
     u32 irq_value;
 
@@ -242,44 +272,53 @@ static irqreturn_t edu_irq_handler(int irq, void *dev_id) {
     return IRQ_HANDLED;
 }
 
-static void edu_pci_cleanup(struct pci_dev *pdev) {
-    if (!edu_dev) {
+static void edu_pci_cleanup(struct pci_dev *pdev)
+{
+    if (!edu_dev)
+    {
         return;
     }
-    if (edu_dev->added_cdev) {
+    if (edu_dev->added_cdev)
+    {
         cdev_del(&edu_dev->cdev);
         edu_dev->added_cdev = false;
     }
-    if (edu_dev->registered_irq_handler) {
+    if (edu_dev->registered_irq_handler)
+    {
         free_irq(edu_dev->irq, edu_dev);
         edu_dev->registered_irq_handler = false;
     }
-    if (pci_dev_msi_enabled(pdev)) {
+    if (pci_dev_msi_enabled(pdev))
+    {
         pci_free_irq_vectors(pdev);
     }
 }
 
-static int edu_pci_probe(struct pci_dev *pdev, const struct pci_device_id *ent) {
+static int edu_pci_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
+{
     int err;
     int nvec;
 
     // enable PCI device
     err = pcim_enable_device(pdev);
-    if (err) {
+    if (err)
+    {
         goto fail;
     }
 
     // enable DMA (note that this is necessary for MSI)
     pci_set_master(pdev);
     err = dma_set_mask_and_coherent(&pdev->dev, DMA_BIT_MASK(EDU_DMA_BITS));
-    if (err) {
+    if (err)
+    {
         goto fail;
     }
 
     // set up DMA mapping
     edu_dev->dma_virt_addr = dmam_alloc_coherent(
         &pdev->dev, EDU_DMA_BUF_SIZE, &edu_dev->dma_bus_addr, GFP_KERNEL);
-    if (!edu_dev->dma_virt_addr) {
+    if (!edu_dev->dma_virt_addr)
+    {
         err = -ENOMEM;
         goto fail;
     }
@@ -290,36 +329,58 @@ static int edu_pci_probe(struct pci_dev *pdev, const struct pci_device_id *ent) 
     // There is one memory region, 1 MB in size
     edu_log("resource 0: start=0x%08llx end=0x%08llx\n", pci_resource_start(pdev, 0), pci_resource_end(pdev, 0));
     err = pcim_iomap_regions(pdev, BIT(0), KBUILD_MODNAME);
-    if (err) {
+    if (err)
+    {
         goto fail;
     }
     edu_dev->iomem = pcim_iomap_table(pdev)[0];
 
-    if (param_msi) {
+    if (param_msi)
+    {
         // Fall back to INTx if MSI isn't available
         nvec = pci_alloc_irq_vectors(pdev, 1, 1, PCI_IRQ_ALL_TYPES);
-        if (nvec < 0) {
+        if (nvec < 0)
+        {
             err = nvec;
             goto fail;
         }
         edu_dev->irq = pci_irq_vector(pdev, 0);
-    } else {
+    }
+    else
+    {
         edu_dev->irq = pdev->irq;
     }
     edu_log("irq = %u\n", edu_dev->irq);
     // need IRQF_SHARED because all (legacy) PCI IRQ lines can be shared
     err = request_irq(edu_dev->irq, edu_irq_handler, IRQF_SHARED, KBUILD_MODNAME, edu_dev);
-    if (err) {
+    if (err)
+    {
         goto fail;
     }
     edu_dev->registered_irq_handler = true;
 
     // add char device
     err = cdev_add(&edu_dev->cdev, devno, 1);
-    if (err) {
+    if (err)
+    {
         goto fail;
     }
     edu_dev->added_cdev = true;
+
+    if (pdev->sriov_totalvfs > 0)
+    {
+        err = pci_enable_sriov(pdev, 2); // VF 数
+        if (err)
+        {
+            printk(KERN_ERR "Failed to enable SR-IOV on edu PF\n");
+            // pci_disable_device(pdev);
+            // return err;
+        }
+        else
+        {
+            printk(KERN_INFO "SR-IOV enabled, %d VFs available\n", pdev->sriov_totalvfs);
+        }
+    }
 
     return 0;
 fail:
@@ -327,7 +388,8 @@ fail:
     return err;
 }
 
-static void edu_pci_remove(struct pci_dev *pdev) {
+static void edu_pci_remove(struct pci_dev *pdev)
+{
     pr_info("removing\n");
     edu_pci_cleanup(pdev);
 }
@@ -339,24 +401,29 @@ static struct pci_driver edu_pci_driver = {
     .remove = edu_pci_remove,
 };
 
-static void edu_driver_cleanup(void) {
-    if (edu_dev) {
+static void edu_driver_cleanup(void)
+{
+    if (edu_dev)
+    {
         kfree(edu_dev);
         edu_dev = NULL;
     }
-    if (devno) {
+    if (devno)
+    {
         unregister_chrdev_region(devno, 1);
         devno = 0;
     }
 }
 
 // Uncomment __init if you don't need to debug this function in gdb
-static int /* __init */ edu_init(void) {
+static int /* __init */ edu_init(void)
+{
     int err;
 
     // allocate device number
     err = alloc_chrdev_region(&devno, minor, 1, KBUILD_MODNAME);
-    if (err) {
+    if (err)
+    {
         return err;
     }
     // You can also get the major number by checking /proc/devices
@@ -366,14 +433,16 @@ static int /* __init */ edu_init(void) {
 
     // initialize driver state
     edu_dev = kzalloc(sizeof(*edu_dev), GFP_KERNEL);
-    if (!edu_dev) {
+    if (!edu_dev)
+    {
         err = -ENOMEM;
         goto fail;
     }
     edu_dev_init(edu_dev);
 
     err = pci_register_driver(&edu_pci_driver);
-    if (err) {
+    if (err)
+    {
         goto fail;
     }
     return 0;
@@ -384,7 +453,8 @@ fail:
 }
 
 // Uncomment __exit if you don't need to debug this function in gdb
-static void /* __exit */ edu_exit(void) {
+static void /* __exit */ edu_exit(void)
+{
     pci_unregister_driver(&edu_pci_driver);
     edu_driver_cleanup();
 }
