@@ -391,6 +391,7 @@ fail:
 static void edu_pci_remove(struct pci_dev *pdev)
 {
     pr_info("removing\n");
+    pci_disable_sriov(pdev);
     edu_pci_cleanup(pdev);
 }
 
