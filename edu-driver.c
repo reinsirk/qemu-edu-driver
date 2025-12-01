@@ -367,7 +367,7 @@ static int edu_pci_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
     }
     edu_dev->added_cdev = true;
 
-    if (pdev->sriov_totalvfs > 0)
+    if (1)
     {
         err = pci_enable_sriov(pdev, 2); // VF 数
         if (err)
@@ -378,7 +378,7 @@ static int edu_pci_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
         }
         else
         {
-            printk(KERN_INFO "SR-IOV enabled, %d VFs available\n", pdev->sriov_totalvfs);
+            printk(KERN_INFO "SR-IOV enabled, VFs available\n");
         }
     }
 
