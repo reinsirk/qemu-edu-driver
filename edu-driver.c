@@ -367,20 +367,20 @@ static int edu_pci_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
     }
     edu_dev->added_cdev = true;
 
-    if (1)
-    {
-        err = pci_enable_sriov(pdev, 2); // VF 数
-        if (err)
-        {
-            printk(KERN_ERR "Failed to enable SR-IOV on edu PF\n");
-            // pci_disable_device(pdev);
-            // return err;
-        }
-        else
-        {
-            printk(KERN_INFO "SR-IOV enabled, VFs available\n");
-        }
-    }
+    // if (pdev->is_physfn&&!pci_num_vf(pdev))
+    // {
+    //     err = pci_enable_sriov(pdev, 2); // VF 数
+    //     if (err)
+    //     {
+    //         printk(KERN_ERR "Failed to enable SR-IOV on edu PF %d\n",err);
+    //         // pci_disable_device(pdev);
+    //         // return err;
+    //     }
+    //     else
+    //     {
+    //         printk(KERN_INFO "SR-IOV enabled, VFs available\n");
+    //     }
+    // }
 
     return 0;
 fail:
@@ -395,11 +395,37 @@ static void edu_pci_remove(struct pci_dev *pdev)
     edu_pci_cleanup(pdev);
 }
 
+static int dev_sriov_configure(struct pci_dev *dev, int numvfs)
+{
+    if (numvfs > 0)
+    {
+        int err = pci_enable_sriov(dev, numvfs);
+        if (err)
+        {
+            printk(KERN_ERR "Failed to enable SR-IOV on edu PF %d\n", err);
+            // pci_disable_device(pdev);
+            // return err;
+        }
+        else
+        {
+            printk(KERN_INFO "SR-IOV enabled, VFs available\n");
+        }
+        return numvfs;
+    }
+    if (numvfs == 0)
+    {
+        pci_disable_sriov(dev);
+        return 0;
+    }
+    return -1;
+}
+
 static struct pci_driver edu_pci_driver = {
     .name = KBUILD_MODNAME,
     .id_table = edu_pci_tbl,
     .probe = edu_pci_probe,
     .remove = edu_pci_remove,
+    .sriov_configure = dev_sriov_configure,
 };
 
 static void edu_driver_cleanup(void)
