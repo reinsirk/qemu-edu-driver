@@ -194,10 +194,8 @@ static int do_dma(struct edu_device *dev, u32 len, bool to_device)
         cmd = EDU_DMA_CMD_START_XFER | EDU_DMA_CMD_DEVICE_TO_RAM | EDU_DMA_CMD_RAISE_IRQ;
     }
     edu_log("src=0x%016lx dst=0x%016lx len=%u\n", src, dst, len);
-    writel(lower_32_bits(src), dev->iomem + EDU_ADDR_DMA_SRC);
-    writel(upper_32_bits(src), dev->iomem + EDU_ADDR_DMA_SRC + 4);
-    writel(lower_32_bits(dst), dev->iomem + EDU_ADDR_DMA_DST);
-    writel(upper_32_bits(dst), dev->iomem + EDU_ADDR_DMA_DST + 4);
+    writeq(src, dev->iomem + EDU_ADDR_DMA_SRC);
+    writeq(dst, dev->iomem + EDU_ADDR_DMA_DST);
     writel(len, dev->iomem + EDU_ADDR_DMA_XFER);
     writel(cmd, dev->iomem + EDU_ADDR_DMA_CMD);
     if (wait_event_interruptible(dev->irq_wait_queue, !is_doing_dma(dev)))
