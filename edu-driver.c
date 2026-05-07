@@ -11,6 +11,7 @@
 #include <linux/slab.h>
 #include <linux/uaccess.h>
 #include <linux/wait.h>
+#include <linux/pci-doe.h>
 #include "edu.h"
 
 // See https://github.com/qemu/qemu/blob/stable-7.2/docs/specs/edu.txt
@@ -66,6 +67,8 @@ struct edu_device
     wait_queue_head_t irq_wait_queue;
     dma_addr_t dma_bus_addr;
     void *dma_virt_addr;
+
+    struct pci_doe_mb *doe_mb; // 追加: DOEメールボックスへのポインタ
 };
 
 static dev_t devno;
@@ -215,6 +218,74 @@ static int ioctl_dma_from_device(struct edu_device *dev, u32 arg)
     return do_dma(dev, arg, false);
 }
 
+static int ioctl_spdm_exchange(struct edu_device *dev, struct edu_spdm_data __user *arg)
+{
+    struct edu_spdm_data data;
+    void *req_buf = NULL;
+    void *resp_buf = NULL;
+    void __user *user_req_ptr;
+    void __user *user_resp_ptr;
+    int ret;
+
+    // メールボックスが未発見の場合はエラー
+    if (!dev->doe_mb)
+        return -ENODEV;
+
+    // 1. ユーザー空間から構造体をコピー
+    if (copy_from_user(&data, arg, sizeof(data)))
+        return -EFAULT;
+
+    // 2. 64bit型で受け取ったポインタをカーネル空間用にキャスト
+    user_req_ptr = (void __user *)(uintptr_t)data.request_ptr;
+    user_resp_ptr = (void __user *)(uintptr_t)data.response_ptr;
+
+    // 3. リクエスト用バッファの確保とコピー
+    req_buf = memdup_user(user_req_ptr, data.request_size);
+    if (IS_ERR(req_buf))
+        return PTR_ERR(req_buf);
+
+    // 4. レスポンス用バッファの確保
+    resp_buf = kzalloc(data.response_size, GFP_KERNEL);
+    if (!resp_buf) {
+        kfree(req_buf);
+        return -ENOMEM;
+    }
+
+    // 5. 【修正箇所】 新しいカーネルの同期型APIを呼び出し
+    // pci_doe()は内部でステートマシンやタイムアウト処理を行い、結果（受信バイト数）を返します
+    ret = pci_doe(dev->doe_mb, 
+                  PCI_VENDOR_ID_PCI_SIG, 
+                  PCI_DOE_FEATURE_CMA,
+                  req_buf, data.request_size,
+                  resp_buf, data.response_size);
+
+    // エラー発生時はそのまま終了処理へ
+    if (ret < 0) {
+        goto out;
+    }
+
+    // pci_doe()が成功した場合、retには実際にデバイスから受信したバイト数が入っている
+    // 6. ユーザー空間へレスポンスをコピー
+    if (copy_to_user(user_resp_ptr, resp_buf, ret)) {
+        ret = -EFAULT;
+        goto out;
+    }
+
+    // 7. 実際のレスポンスサイズを更新して構造体を書き戻す
+    data.response_size = ret;
+    if (copy_to_user(arg, &data, sizeof(data))) {
+        ret = -EFAULT;
+        goto out;
+    }
+
+    ret = 0; // 正常終了
+
+out:
+    kfree(req_buf);
+    kfree(resp_buf);
+    return ret;
+}
+
 static long edu_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 {
     struct edu_device *dev = filp->private_data;
@@ -234,6 +305,10 @@ static long edu_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
         return ioctl_dma_to_device(dev, (u32)arg);
     case EDU_IOCTL_DMA_FROM_DEVICE:
         return ioctl_dma_from_device(dev, (u32)arg);
+    /* === ここを追加 === */
+    case EDU_IOCTL_SPDM_EXCHANGE:
+        return ioctl_spdm_exchange(dev, (struct edu_spdm_data __user *)arg);
+    /* ================= */
     default:
         return -ENOTTY;
     }
@@ -332,6 +407,17 @@ static int edu_pci_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
         goto fail;
     }
     edu_dev->iomem = pcim_iomap_table(pdev)[0];
+
+    // --- 追加: SPDM用DOEメールボックスの探索 ---
+    // PCI_VENDOR_ID_PCI_SIG (0x0001) と Data Object Type SPDM (0x01) を指定
+    edu_dev->doe_mb = pci_find_doe_mailbox(pdev, PCI_VENDOR_ID_PCI_SIG, PCI_DOE_FEATURE_CMA);
+    if (!edu_dev->doe_mb) {
+        edu_log("Warning: SPDM DOE mailbox not found on this device\n");
+        // ※エラーにはせず、他のeduの機能は使えるようにしておく等の設計が考えられます
+    } else {
+        edu_log("Found SPDM DOE mailbox!\n");
+    }
+    // ---------------------------------------------
 
     if (param_msi)
     {
