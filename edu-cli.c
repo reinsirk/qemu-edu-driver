@@ -133,19 +133,60 @@ int main(int argc, char *argv[])
     }
     else if (strcmp(argv[1], "spdm-test") == 0)
     {
-        struct edu_spdm_data spdm_args = {0,0,0,0,0,0};
+        struct edu_spdm_data spdm_args = {0, 0, 0, 0, 0, 0};
 
         // SPDMメッセージの例: GET_VERSION リクエスト (SPDM 1.0)
         uint8_t spdm_request[] = {0x10, 0x84, 0x00, 0x00};
         uint8_t spdm_response[1024] = {0}; // 受信用の十分なバッファ
 
-        // 1. デバイスファイルを開く
-        fd = open("/dev/edu", O_RDWR);
-        if (fd < 0)
+        // 2. 構造体にポインタとサイズをセット
+        spdm_args.request_ptr = (uint64_t)(uintptr_t)spdm_request;
+        spdm_args.request_size = sizeof(spdm_request);
+
+        spdm_args.response_ptr = (uint64_t)(uintptr_t)spdm_response;
+        spdm_args.response_size = sizeof(spdm_response); // 受信バッファの最大サイズを教える
+
+        // 3. IOCTLを呼び出す
+        printf("Sending SPDM Request...\n");
+        if (ioctl(fd, EDU_IOCTL_SPDM_EXCHANGE, &spdm_args) < 0)
         {
-            perror("Failed to open /dev/edu");
+            perror("IOCTL_SPDM_EXCHANGE failed");
+            close(fd);
             return -1;
         }
+
+        // 4. 結果の確認
+        // ioctl成功後、spdm_args.response_size には実際に受信したバイト数が上書きされています
+        printf("Received SPDM Response (Size: %u bytes):\n", spdm_args.response_size);
+        for (uint32_t i = 0; i < spdm_args.response_size; i++)
+        {
+            printf("%02X ", spdm_response[i]);
+        }
+        printf("\n");
+    }
+    else if (strcmp(argv[1], "challenge") == 0)
+    {
+
+        struct edu_spdm_data spdm_args = {0, 0, 0, 0, 0, 0};
+
+        // Challenge Response Request
+        uint8_t spdm_request[] = {
+            0x14, 0xFE, 0x00, 0x00, /* ここまでParam2 (SPDM Header) */
+            0x03, 0x00,             /* PCI-SIG Standard ID = 3 (Little-Endian) */
+            0x02,                   /* VendorIDLen = 2 */
+            0x01, 0x00,             /* SPDM_VENDOR_ID_PCISIG = 0x0001 (Little-Endian) */
+            0x11, 0x00,             /* PayloadLength = 17 (Little-Endian) */
+            
+            /* ---- ここから Vendor Defined Payload ---- */
+            0x01,                   /* Protocol ID = TDISP */
+            0x10,                   /* TDISP version */
+            0xC1,                   /* Challenge Resp Response Request ID */
+            0x00, 0x00,             /* Reserved */
+            0x00, 0x00, 0x00, 0x00, 
+            0x00, 0x00, 0x00, 0x00, 
+            0x00, 0x00, 0x00, 0x00, /* Interface ID (but not used) */
+        };
+        uint8_t spdm_response[1024] = {0}; // 受信用の十分なバッファ
 
         // 2. 構造体にポインタとサイズをセット
         spdm_args.request_ptr = (uint64_t)(uintptr_t)spdm_request;
