@@ -166,36 +166,26 @@ int main(int argc, char *argv[])
     }
     else if (strcmp(argv[1], "challenge") == 0)
     {
-
+        free_mmio_data d;
+        d = (free_mmio_data){0x104, 2025};
+        ioctl(fd, EDU_IOCTL_MMIO_FREE_WRITE, &d);
+        d = (free_mmio_data){0x200, 521};
+        ioctl(fd, EDU_IOCTL_MMIO_FREE_WRITE, &d);
         struct edu_spdm_data spdm_args = {0, 0, 0, 0, 0, 0};
+        Challenge_resp_req *spdm_request;
+        Challenge_resp_req r;
+        spdm_request = &r;
+        make_Challenge_resp_req(spdm_request);
 
-        // Challenge Response Request
-        uint8_t spdm_request[] = {
-            0x14, 0xFE, 0x00, 0x00, /* ここまでParam2 (SPDM Header) */
-            0x03, 0x00,             /* PCI-SIG Standard ID = 3 (Little-Endian) */
-            0x02,                   /* VendorIDLen = 2 */
-            0x01, 0x00,             /* SPDM_VENDOR_ID_PCISIG = 0x0001 (Little-Endian) */
-            0x11, 0x00,             /* PayloadLength = 17 (Little-Endian) */
-            
-            /* ---- ここから Vendor Defined Payload ---- */
-            0x01,                   /* Protocol ID = TDISP */
-            0x10,                   /* TDISP version */
-            0xC1,                   /* Challenge Resp Response Request ID */
-            0x00, 0x00,             /* Reserved */
-            0x00, 0x00, 0x00, 0x00, 
-            0x00, 0x00, 0x00, 0x00, 
-            0x00, 0x00, 0x00, 0x00, /* Interface ID (but not used) */
-        };
         uint8_t spdm_response[1024] = {0}; // 受信用の十分なバッファ
 
-        // 2. 構造体にポインタとサイズをセット
         spdm_args.request_ptr = (uint64_t)(uintptr_t)spdm_request;
-        spdm_args.request_size = sizeof(spdm_request);
+        // spdm_args.request_size = sizeof(spdm_request);
+        spdm_args.request_size = sizeof(Challenge_resp_req);
 
         spdm_args.response_ptr = (uint64_t)(uintptr_t)spdm_response;
         spdm_args.response_size = sizeof(spdm_response); // 受信バッファの最大サイズを教える
 
-        // 3. IOCTLを呼び出す
         printf("Sending SPDM Request...\n");
         if (ioctl(fd, EDU_IOCTL_SPDM_EXCHANGE, &spdm_args) < 0)
         {
@@ -204,14 +194,18 @@ int main(int argc, char *argv[])
             return -1;
         }
 
-        // 4. 結果の確認
-        // ioctl成功後、spdm_args.response_size には実際に受信したバイト数が上書きされています
-        printf("Received SPDM Response (Size: %u bytes):\n", spdm_args.response_size);
-        for (uint32_t i = 0; i < spdm_args.response_size; i++)
+        Challenge_resp_rsp *ret = spdm_response;
+        if (ret->Request_Code == 0x7f)
         {
-            printf("%02X ", spdm_response[i]);
+            perror("IOCTL_SPDM_EXCHANGE failed");
+            close(fd);
+            return -1;
         }
-        printf("\n");
+        printf("Retrun Response\n");
+        for (int i = 0; i < ret->resp_size; i++)
+        {
+            printf("BAR num: %d, offset: %lu, nonce: %lu\n", ret->resp[i].BAR_num, ret->resp[i].offset, ret->resp[i].nonce);
+        }
     }
     else
     {
