@@ -8,6 +8,8 @@
 #include <unistd.h>
 #include "edu.h"
 
+uint8_t g_interface_nonce[32];
+
 static const char *const device_path = "/dev/edu";
 
 static void print_usage(const char *argv0)
@@ -167,9 +169,13 @@ int main(int argc, char *argv[])
     else if (strcmp(argv[1], "challenge") == 0)
     {
         free_mmio_data d;
-        d = (free_mmio_data){0x104, 2025};
+        d = (free_mmio_data){0x0, 2025};
         ioctl(fd, EDU_IOCTL_MMIO_FREE_WRITE, &d);
-        d = (free_mmio_data){0x200, 521};
+        d = (free_mmio_data){0x1000, 521};
+        ioctl(fd, EDU_IOCTL_MMIO_FREE_WRITE, &d);
+        d = (free_mmio_data){0x0, 2026};
+        ioctl(fd, EDU_IOCTL_MMIO_FREE_WRITE, &d);
+        d = (free_mmio_data){0x2000, 528};
         ioctl(fd, EDU_IOCTL_MMIO_FREE_WRITE, &d);
         struct edu_spdm_data spdm_args = {0, 0, 0, 0, 0, 0};
         Challenge_resp_req *spdm_request;
@@ -197,7 +203,7 @@ int main(int argc, char *argv[])
         Challenge_resp_rsp *ret = spdm_response;
         if (ret->Request_Code == 0x7f)
         {
-            perror("IOCTL_SPDM_EXCHANGE failed");
+            perror("TDISP Internal Error!\n");
             close(fd);
             return -1;
         }
@@ -205,6 +211,162 @@ int main(int argc, char *argv[])
         for (int i = 0; i < ret->resp_size; i++)
         {
             printf("BAR num: %d, offset: %lu, nonce: %lu\n", ret->resp[i].BAR_num, ret->resp[i].offset, ret->resp[i].nonce);
+        }
+    }
+    else if (strcmp(argv[1], "tdisp_version") == 0)
+    {
+        struct edu_spdm_data spdm_args = {0, 0, 0, 0, 0, 0};
+        TDISP_get_version_req *spdm_request;
+        TDISP_get_version_req *r;
+        spdm_request = &r;
+        make_TDISP_get_version(spdm_request);
+
+        uint8_t spdm_response[1024] = {0}; // 受信用の十分なバッファ
+
+        spdm_args.request_ptr = (uint64_t)(uintptr_t)spdm_request;
+        // spdm_args.request_size = sizeof(spdm_request);
+        spdm_args.request_size = sizeof(TDISP_get_version_req);
+
+        spdm_args.response_ptr = (uint64_t)(uintptr_t)spdm_response;
+        spdm_args.response_size = sizeof(spdm_response); // 受信バッファの最大サイズを教える
+
+        // printf("Sending SPDM Request...\n");
+        if (ioctl(fd, EDU_IOCTL_SPDM_EXCHANGE, &spdm_args) < 0)
+        {
+            perror("IOCTL_SPDM_EXCHANGE failed");
+            close(fd);
+            return -1;
+        }
+        TDISP_get_version_rsp *ret;
+        ret = spdm_response;
+        if (ret->Request_Code == 0x7f)
+        {
+            perror("TDISP Internal Error!\n");
+            close(fd);
+            return -1;
+        }
+    }
+    else if (strcmp(argv[1], "lock") == 0)
+    {
+        struct edu_spdm_data spdm_args = {0, 0, 0, 0, 0, 0};
+        TDISP_lock_interface_request *spdm_request;
+        TDISP_lock_interface_request r;
+        spdm_request = &r;
+        make_TDISP_lock_interface_request(spdm_request);
+
+        uint8_t spdm_response[1024] = {0}; // 受信用の十分なバッファ
+
+        spdm_args.request_ptr = (uint64_t)(uintptr_t)spdm_request;
+        // spdm_args.request_size = sizeof(spdm_request);
+        spdm_args.request_size = sizeof(TDISP_lock_interface_request);
+
+        spdm_args.response_ptr = (uint64_t)(uintptr_t)spdm_response;
+        spdm_args.response_size = sizeof(spdm_response); // 受信バッファの最大サイズを教える
+
+        // printf("Sending SPDM Request...\n");
+        if (ioctl(fd, EDU_IOCTL_SPDM_EXCHANGE, &spdm_args) < 0)
+        {
+            perror("IOCTL_SPDM_EXCHANGE failed");
+            close(fd);
+            return -1;
+        }
+        TDISP_lock_interface_request_rsp *ret;
+        ret = spdm_response;
+        if (ret->Request_Code == 0x7f)
+        {
+            perror("TDISP Internal Error!\n");
+            close(fd);
+            return -1;
+        }
+        FILE *fp = fopen("nonce.bin", "wb");
+        if (!fp)
+        {
+            perror("fopen");
+            return 1;
+        }
+        for (int i = 0; i < 32; i++)
+        {
+            // g_interface_nonce[i] = ret->interface_nonce[i];
+            fwrite((ret->interface_nonce), sizeof(uint8_t), 32, fp);
+        }
+        fclose(fp);
+    }
+    else if (strcmp(argv[1], "start") == 0)
+    {
+        struct edu_spdm_data spdm_args = {0, 0, 0, 0, 0, 0};
+        TDISP_start_interface_request *spdm_request;
+        TDISP_start_interface_request r;
+        spdm_request = &r;
+        FILE *fp = fopen("nonce.bin", "rb");
+        if (!fp)
+        {
+            perror("fopen");
+            return 1;
+        }
+        for (int i = 0; i < 32; i++)
+        {
+            // g_interface_nonce[i] = ret->interface_nonce[i];
+            fread(g_interface_nonce, sizeof(uint8_t), 32, fp);
+        }
+        fclose(fp);
+        make_TDISP_start_interface_request(spdm_request, g_interface_nonce);
+
+        uint8_t spdm_response[1024] = {0}; // 受信用の十分なバッファ
+
+        spdm_args.request_ptr = (uint64_t)(uintptr_t)spdm_request;
+        // spdm_args.request_size = sizeof(spdm_request);
+        spdm_args.request_size = sizeof(TDISP_start_interface_request);
+
+        spdm_args.response_ptr = (uint64_t)(uintptr_t)spdm_response;
+        spdm_args.response_size = sizeof(spdm_response); // 受信バッファの最大サイズを教える
+
+        // printf("Sending SPDM Request...\n");
+        if (ioctl(fd, EDU_IOCTL_SPDM_EXCHANGE, &spdm_args) < 0)
+        {
+            perror("IOCTL_SPDM_EXCHANGE failed");
+            close(fd);
+            return -1;
+        }
+        TDISP_start_interface_request_rsp *ret;
+        ret = spdm_response;
+        if (ret->Request_Code == 0x7f)
+        {
+            perror("TDISP Internal Error!\n");
+            close(fd);
+            return -1;
+        }
+    }
+    else if (strcmp(argv[1], "stop") == 0)
+    {
+        struct edu_spdm_data spdm_args = {0, 0, 0, 0, 0, 0};
+        TDISP_stop_interface_request *spdm_request;
+        TDISP_stop_interface_request r;
+        spdm_request = &r;
+        make_TDISP_stop_interface_request(spdm_request);
+
+        uint8_t spdm_response[1024] = {0}; // 受信用の十分なバッファ
+
+        spdm_args.request_ptr = (uint64_t)(uintptr_t)spdm_request;
+        // spdm_args.request_size = sizeof(spdm_request);
+        spdm_args.request_size = sizeof(TDISP_stop_interface_request);
+
+        spdm_args.response_ptr = (uint64_t)(uintptr_t)spdm_response;
+        spdm_args.response_size = sizeof(spdm_response); // 受信バッファの最大サイズを教える
+
+        // printf("Sending SPDM Request...\n");
+        if (ioctl(fd, EDU_IOCTL_SPDM_EXCHANGE, &spdm_args) < 0)
+        {
+            perror("IOCTL_SPDM_EXCHANGE failed");
+            close(fd);
+            return -1;
+        }
+        TDISP_stop_interface_request_rsp *ret;
+        ret = spdm_response;
+        if (ret->Request_Code == 0x7f)
+        {
+            perror("TDISP Internal Error!\n");
+            close(fd);
+            return -1;
         }
     }
     else

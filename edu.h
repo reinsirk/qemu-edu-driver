@@ -37,6 +37,35 @@ struct edu_spdm_data
 #define PCI_DOE_FEATURE_SSESSION 2
 #endif
 
+/* TDISP response code */
+
+#define PCI_TDISP_VERSION 0x01
+#define PCI_TDISP_CAPABILITIES 0x02
+#define PCI_TDISP_LOCK_INTERFACE_RSP 0x03
+#define PCI_TDISP_DEVICE_INTERFACE_REPORT 0x04
+#define PCI_TDISP_DEVICE_INTERFACE_STATE 0x05
+#define PCI_TDISP_START_INTERFACE_RSP 0x06
+#define PCI_TDISP_STOP_INTERFACE_RSP 0x07
+#define PCI_TDISP_BIND_P2P_STREAM_RSP 0x08
+#define PCI_TDISP_UNBIND_P2P_STREAM_RSP 0x09
+#define PCI_TDISP_SET_MMIO_ATTRIBUTE_RSP 0x0A
+#define PCI_TDISP_VDM_RSP 0x0B
+#define PCI_TDISP_ERROR 0x7F
+
+/* TDISP request code */
+
+#define PCI_TDISP_GET_VERSION 0x81
+#define PCI_TDISP_GET_CAPABILITIES 0x82
+#define PCI_TDISP_LOCK_INTERFACE_REQ 0x83
+#define PCI_TDISP_GET_DEVICE_INTERFACE_REPORT 0x84
+#define PCI_TDISP_GET_DEVICE_INTERFACE_STATE 0x85
+#define PCI_TDISP_START_INTERFACE_REQ 0x86
+#define PCI_TDISP_STOP_INTERFACE_REQ 0x87
+#define PCI_TDISP_BIND_P2P_STREAM_REQ 0x88
+#define PCI_TDISP_UNBIND_P2P_STREAM_REQ 0x89
+#define PCI_TDISP_SET_MMIO_ATTRIBUTE_REQ 0x8A
+#define PCI_TDISP_VDM_REQ 0x8B
+
 #define TDISP_VERSION 0x10
 
 /* TriniTEE request code */
@@ -137,13 +166,235 @@ typedef struct __attribute__((packed))
     // 17byte
     uint8_t Protocol_ID;   // 0x1
     uint8_t TDISP_Version; // 0x10
-    uint8_t Request_Code;  // 0xC1
+    uint8_t Request_Code;  // 0x81
     uint16_t reserved;     // 0x0
     uint32_t RID;
     uint64_t Interface_ID_Reserved;
     uint32_t resp_size;
     challenge_resp_internal resp[8];
 } Challenge_resp_rsp;
+#if defined(_MSC_VER)
+#pragma pack(pop)
+#endif
+
+#if defined(_MSC_VER)
+#pragma pack(push, 1)
+typedef struct
+#elif defined(__GNUC__)
+typedef struct __attribute__((packed))
+#endif
+{
+    SPDM_Header sh;
+    // 17byte
+    uint8_t Protocol_ID;   // 0x1
+    uint8_t TDISP_Version; // 0x10
+    uint8_t Request_Code;  // 0xC1
+    uint16_t reserved;     // 0x0
+    uint32_t RID;
+    uint64_t Interface_ID_Reserved;
+} TDISP_get_version_req;
+#if defined(_MSC_VER)
+#pragma pack(pop)
+#endif
+
+static inline void make_TDISP_get_version(TDISP_get_version_req *r)
+{
+    make_SPDM_Header(&(r->sh), 17);
+    r->Protocol_ID = 0x1;
+    r->TDISP_Version = TDISP_VERSION;
+    r->Request_Code = PCI_TDISP_GET_VERSION;
+    r->reserved = 0;
+    r->RID = 0;
+    r->Interface_ID_Reserved = 0;
+}
+
+#if defined(_MSC_VER)
+#pragma pack(push, 1)
+typedef struct
+#elif defined(__GNUC__)
+typedef struct __attribute__((packed))
+#endif
+{
+    SPDM_Header sh;
+    // 17byte
+    uint8_t Protocol_ID;   // 0x1
+    uint8_t TDISP_Version; // 0x10
+    uint8_t Request_Code;  // 0xC1
+    uint16_t reserved;     // 0x0
+    uint32_t RID;
+    uint64_t Interface_ID_Reserved;
+    uint8_t version_num_count;
+    uint8_t version_num_entry[8];
+} TDISP_get_version_rsp;
+#if defined(_MSC_VER)
+#pragma pack(pop)
+#endif
+
+#if defined(_MSC_VER)
+#pragma pack(push, 1)
+typedef struct
+#elif defined(__GNUC__)
+typedef struct __attribute__((packed))
+#endif
+{
+    SPDM_Header sh;
+    // 37byte
+    uint8_t Protocol_ID;   // 0x1
+    uint8_t TDISP_Version; // 0x10
+    uint8_t Request_Code;  // 0xC1
+    uint16_t reserved;     // 0x0
+    uint32_t RID;
+    uint64_t Interface_ID_Reserved;
+    uint16_t flags;
+    uint8_t default_stream_id;
+    uint8_t reserved2;
+    uint64_t mmio_offset;
+    uint64_t p2p_address_mask;
+} TDISP_lock_interface_request;
+#if defined(_MSC_VER)
+#pragma pack(pop)
+#endif
+
+static inline void make_TDISP_lock_interface_request(TDISP_lock_interface_request *r)
+{
+    make_SPDM_Header(&(r->sh), 37);
+    r->Protocol_ID = 0x1;
+    r->TDISP_Version = TDISP_VERSION;
+    r->Request_Code = PCI_TDISP_LOCK_INTERFACE_REQ;
+    r->reserved = 0;
+    r->RID = 0;
+    r->Interface_ID_Reserved = 0;
+    r->flags = 0;
+    r->default_stream_id = 0;
+    r->reserved2 = 0;
+    r->mmio_offset = 0;
+    r->p2p_address_mask = 0;
+}
+
+#if defined(_MSC_VER)
+#pragma pack(push, 1)
+typedef struct
+#elif defined(__GNUC__)
+typedef struct __attribute__((packed))
+#endif
+{
+    SPDM_Header sh;
+    // 17byte
+    uint8_t Protocol_ID;   // 0x1
+    uint8_t TDISP_Version; // 0x10
+    uint8_t Request_Code;  // 0xC1
+    uint16_t reserved;     // 0x0
+    uint32_t RID;
+    uint64_t Interface_ID_Reserved;
+    uint8_t interface_nonce[32];
+} TDISP_lock_interface_request_rsp;
+#if defined(_MSC_VER)
+#pragma pack(pop)
+#endif
+
+#if defined(_MSC_VER)
+#pragma pack(push, 1)
+typedef struct
+#elif defined(__GNUC__)
+typedef struct __attribute__((packed))
+#endif
+{
+    SPDM_Header sh;
+    // 49byte
+    uint8_t Protocol_ID;   // 0x1
+    uint8_t TDISP_Version; // 0x10
+    uint8_t Request_Code;  // 0xC1
+    uint16_t reserved;     // 0x0
+    uint32_t RID;
+    uint64_t Interface_ID_Reserved;
+    uint8_t interface_nonce[32];
+} TDISP_start_interface_request;
+#if defined(_MSC_VER)
+#pragma pack(pop)
+#endif
+
+static inline void make_TDISP_start_interface_request(TDISP_start_interface_request *r, uint8_t *interface_nonce)
+{
+    make_SPDM_Header(&(r->sh), 49);
+    r->Protocol_ID = 0x1;
+    r->TDISP_Version = TDISP_VERSION;
+    r->Request_Code = PCI_TDISP_START_INTERFACE_REQ;
+    r->reserved = 0;
+    r->RID = 0;
+    r->Interface_ID_Reserved = 0;
+    for (int i = 0; i < 32; i++)
+    {
+        r->interface_nonce[i] = interface_nonce[i];
+    }
+}
+
+#if defined(_MSC_VER)
+#pragma pack(push, 1)
+typedef struct
+#elif defined(__GNUC__)
+typedef struct __attribute__((packed))
+#endif
+{
+    SPDM_Header sh;
+    // 17byte
+    uint8_t Protocol_ID;   // 0x1
+    uint8_t TDISP_Version; // 0x10
+    uint8_t Request_Code;  // 0xC1
+    uint16_t reserved;     // 0x0
+    uint32_t RID;
+    uint64_t Interface_ID_Reserved;
+} TDISP_start_interface_request_rsp;
+#if defined(_MSC_VER)
+#pragma pack(pop)
+#endif
+
+#if defined(_MSC_VER)
+#pragma pack(push, 1)
+typedef struct
+#elif defined(__GNUC__)
+typedef struct __attribute__((packed))
+#endif
+{
+    SPDM_Header sh;
+    // 17byte
+    uint8_t Protocol_ID;   // 0x1
+    uint8_t TDISP_Version; // 0x10
+    uint8_t Request_Code;  // 0xC1
+    uint16_t reserved;     // 0x0
+    uint32_t RID;
+    uint64_t Interface_ID_Reserved;
+} TDISP_stop_interface_request;
+#if defined(_MSC_VER)
+#pragma pack(pop)
+#endif
+
+static inline void make_TDISP_stop_interface_request(TDISP_stop_interface_request *r)
+{
+    make_SPDM_Header(&(r->sh), 17);
+    r->Protocol_ID = 0x1;
+    r->TDISP_Version = TDISP_VERSION;
+    r->Request_Code = PCI_TDISP_STOP_INTERFACE_REQ;
+    r->reserved = 0;
+    r->RID = 0;
+    r->Interface_ID_Reserved = 0;
+}
+
+#if defined(_MSC_VER)
+#pragma pack(push, 1)
+typedef struct
+#elif defined(__GNUC__)
+typedef struct __attribute__((packed))
+#endif
+{
+    SPDM_Header sh;
+    // 17byte
+    uint8_t Protocol_ID;   // 0x1
+    uint8_t TDISP_Version; // 0x10
+    uint8_t Request_Code;  // 0xC1
+    uint16_t reserved;     // 0x0
+    uint32_t RID;
+    uint64_t Interface_ID_Reserved;
+} TDISP_stop_interface_request_rsp;
 #if defined(_MSC_VER)
 #pragma pack(pop)
 #endif
