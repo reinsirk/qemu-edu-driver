@@ -29,6 +29,39 @@ static bool parse_int_arg(const char *s, unsigned int *val)
     return sscanf(s, is_hex ? "%x" : "%u", val) == 1;
 }
 
+// SBIの戻り値を格納する構造体
+struct sbiret
+{
+    long error; // ret[0] に対応
+    long value; // ret[1] に対応
+};
+
+// SBI呼び出し用のインラインアセンブラ関数
+static inline struct sbiret sbi_ecall(int ext, int fid,
+                                      unsigned long arg0, unsigned long arg1,
+                                      unsigned long arg2, unsigned long arg3,
+                                      unsigned long arg4)
+{
+    struct sbiret ret;
+    register long a0 asm("a0") = (long)arg0;
+    register long a1 asm("a1") = (long)arg1;
+    register long a2 asm("a2") = (long)arg2;
+    register long a3 asm("a3") = (long)arg3;
+    register long a4 asm("a4") = (long)arg4;
+    register long a6 asm("a6") = (long)fid; // Function ID (今回は未使用ですが仕様上a6に入れます)
+    register long a7 asm("a7") = (long)ext; // Extension ID (0x08000000)
+
+    asm volatile(
+        "ecall"
+        : "+r"(a0), "=r"(a1)
+        : "r"(a2), "r"(a3), "r"(a4), "r"(a6), "r"(a7)
+        : "memory");
+
+    ret.error = a0;
+    ret.value = a1;
+    return ret;
+}
+
 int main(int argc, char *argv[])
 {
     int fd;
@@ -368,6 +401,56 @@ int main(int argc, char *argv[])
             close(fd);
             return -1;
         }
+    }
+    else if (strcmp(argv[1], "spdm-test-sbi") == 0)
+    {
+        // SPDMメッセージの例: GET_VERSION リクエスト (SPDM 1.0)
+        uint8_t spdm_request[] = {0x10, 0x84, 0x00, 0x00};
+        uint8_t spdm_response[1024] = {0}; // 受信用の十分なバッファ
+
+        // 引数の準備
+        uint32_t guest_rid = 0; // ★環境に合わせて適切なRequester IDを設定してください
+        unsigned long req_addr = (uint64_t)(uintptr_t)spdm_request;
+        unsigned long req_size = sizeof(spdm_request);
+        unsigned long rsp_addr = (uint64_t)(uintptr_t)spdm_response;
+        unsigned long rsp_max = sizeof(spdm_response);
+
+        struct edu_spdm_data spdm_args = {req_addr, req_size, 0, rsp_addr, rsp_max, 0};
+
+        printf("Sending SPDM Request via SBI...\n");
+
+        // ioctlの代わりにSBIコールを発行
+        // a0 = guest_rid
+        // a1 = req_gpa
+        // a2 = req_size
+        // a3 = rsp_gpa
+        // a4 = rsp_max
+        printf("Sending SPDM Request...\n");
+        if (ioctl(fd, EDU_IOCTL_SBI_SPDM_EXCHANGE, &spdm_args) < 0)
+        {
+            perror("IOCTL_SPDM_EXCHANGE failed");
+            close(fd);
+            return -1;
+        }
+        // QEMU側で SBI_SUCCESS (0) または SBI_ERR_FAILED 等が返される
+        // if (ret.error != 0)
+        // {
+        //     printf("SBI call failed with error: %ld\n", ret.error);
+        //     return -1;
+        // }
+
+        // QEMU側の実装で run->riscv_sbi.ret[1] = data.response_size; としているため、
+        // 実際の受信サイズは ret.value に格納されています。
+        uint32_t actual_response_size = (uint32_t)spdm_args.response_size;
+
+        printf("Received SPDM Response (Size: %u bytes):\n", actual_response_size);
+        for (uint32_t i = 0; i < actual_response_size; i++)
+        {
+            printf("%02X ", spdm_response[i]);
+        }
+        printf("\n");
+
+        return 0;
     }
     else
     {

@@ -17,7 +17,7 @@
 #define EDU_IOCTL_DMA_FROM_DEVICE _IOC(_IOC_WRITE, EDU_IOCTL_BASE, 7, 0)
 #define EDU_IOCTL_SPDM_EXCHANGE _IOWR(EDU_IOCTL_BASE, 8, struct edu_spdm_data)
 #define EDU_IOCTL_MMIO_FREE_WRITE _IOWR(EDU_IOCTL_BASE, 9, free_mmio_data)
-
+#define EDU_IOCTL_SBI_SPDM_EXCHANGE _IOWR(EDU_IOCTL_BASE, 10, struct edu_spdm_data)
 #define EDU_DMA_BUF_SIZE 4096
 
 // ユーザー空間からSPDMリクエストを受け渡しするための構造体

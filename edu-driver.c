@@ -12,6 +12,8 @@
 #include <linux/uaccess.h>
 #include <linux/wait.h>
 #include <linux/pci-doe.h>
+#include <linux/io.h>
+#include <asm/sbi.h> // Linuxカーネル内のSBI関連ヘッダ
 #include "edu.h"
 
 // See https://github.com/qemu/qemu/blob/stable-7.2/docs/specs/edu.txt
@@ -74,6 +76,33 @@ struct edu_device
 static dev_t devno;
 static const int minor = 0;
 static struct edu_device *edu_dev;
+
+// SBI呼び出し用のインラインアセンブラ関数（カーネル内で実行）
+static inline struct sbiret custom_sbi_ecall(int ext, int fid, 
+                                             unsigned long arg0, unsigned long arg1, 
+                                             unsigned long arg2, unsigned long arg3, 
+                                             unsigned long arg4) 
+{
+    struct sbiret ret;
+    register long a0 asm("a0") = (long)arg0;
+    register long a1 asm("a1") = (long)arg1;
+    register long a2 asm("a2") = (long)arg2;
+    register long a3 asm("a3") = (long)arg3;
+    register long a4 asm("a4") = (long)arg4;
+    register long a6 asm("a6") = (long)fid;
+    register long a7 asm("a7") = (long)ext;
+
+    asm volatile(
+        "ecall"
+        : "+r"(a0), "+r"(a1)
+        : "r"(a2), "r"(a3), "r"(a4), "r"(a6), "r"(a7)
+        : "memory"
+    );
+
+    ret.error = a0;
+    ret.value = a1;
+    return ret;
+}
 
 static int edu_open(struct inode *inode, struct file *filp)
 {
@@ -299,6 +328,86 @@ static int ioctl_mmio_free_write(struct edu_device *dev, free_mmio_data *arg)
     return 0;
 }
 
+static long ioctl_spdm_sbi(struct edu_device *dev, struct edu_spdm_data *arg)
+{
+    struct edu_spdm_data spdm_args;
+    void *req_buf, *rsp_buf;
+    unsigned long req_gpa, rsp_gpa;
+    struct sbiret sbi_ret;
+
+    {
+        if (copy_from_user(&spdm_args, arg, sizeof(spdm_args))) {
+            pr_err("edu_spdm: Failed to copy spdm_args from user\n");
+            return -EFAULT;
+        }
+
+        pr_info("edu_spdm: ioctl_spdm_sbi called. req_size=%u, rsp_max=%u\n", 
+                spdm_args.request_size, spdm_args.response_size);
+
+        // 1. カーネル空間に連続した物理メモリを確保 (kmalloc)
+        req_buf = kmalloc(spdm_args.request_size, GFP_KERNEL);
+        rsp_buf = kmalloc(spdm_args.response_size, GFP_KERNEL);
+        if (!req_buf || !rsp_buf) {
+            pr_err("edu_spdm: kmalloc failed (req_buf=%p, rsp_buf=%p)\n", req_buf, rsp_buf);
+            kfree(req_buf); kfree(rsp_buf);
+            return -ENOMEM;
+        }
+
+        // 2. ユーザー空間のデータをカーネルバッファにコピー
+        if (copy_from_user(req_buf, (void __user *)spdm_args.request_ptr, spdm_args.request_size)) {
+            pr_err("edu_spdm: Failed to copy request payload from user\n");
+            kfree(req_buf); kfree(rsp_buf);
+            return -EFAULT;
+        }
+
+        for (uint32_t i = 0; i < spdm_args.request_size; i++)
+        {
+            pr_info("%02X ", ((uint8_t*)req_buf)[i]);
+        }
+        pr_info("\n");
+        // 3. 仮想アドレス(VA)をゲスト物理アドレス(GPA)に変換
+        req_gpa = virt_to_phys(req_buf);
+        rsp_gpa = virt_to_phys(rsp_buf);
+        
+        pr_info("edu_spdm: Translated addresses. req_gpa=0x%lx, rsp_gpa=0x%lx\n", 
+                req_gpa, rsp_gpa);
+        pr_info("edu_spdm: Invoking custom SBI call (ext=0x08000000)...\n");
+
+        // 4. 特権モード(S-mode)からSBIコールを発行
+        sbi_ret = custom_sbi_ecall(0x08000000, 0, 
+                                   8 /* guest_rid */, req_gpa, spdm_args.request_size, 
+                                   rsp_gpa, spdm_args.response_size);
+
+        pr_info("edu_spdm: SBI call returned. error=%ld, value=%ld\n", 
+                sbi_ret.error, sbi_ret.value);
+
+        if (sbi_ret.error == 0) {
+            // 5. 成功したら、レスポンスをユーザー空間にコピーして戻す
+            spdm_args.response_size = sbi_ret.value; // 実際の受信サイズ
+            
+            if (copy_to_user((void __user *)spdm_args.response_ptr, rsp_buf, spdm_args.response_size)) {
+                pr_err("edu_spdm: Failed to copy response payload to user\n");
+                kfree(req_buf); kfree(rsp_buf);
+                return -EFAULT;
+            }
+            
+            if (copy_to_user((void __user *)arg, &spdm_args, sizeof(spdm_args))) {
+                pr_err("edu_spdm: Failed to copy spdm_args back to user\n");
+                kfree(req_buf); kfree(rsp_buf);
+                return -EFAULT;
+            }
+            pr_info("edu_spdm: Successfully copied %u bytes back to user\n", spdm_args.response_size);
+        } else {
+            pr_err("edu_spdm: SBI call failed with error code %ld\n", sbi_ret.error);
+        }
+
+        kfree(req_buf);
+        kfree(rsp_buf);
+        
+        return sbi_ret.error; // SBIの戻り値をユーザー空間に返す
+    }
+    return -ENOTTY;
+}
 static long edu_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 {
     struct edu_device *dev = filp->private_data;
@@ -322,6 +431,8 @@ static long edu_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
         return ioctl_spdm_exchange(dev, (struct edu_spdm_data __user *)arg);
     case EDU_IOCTL_MMIO_FREE_WRITE:
         return ioctl_mmio_free_write(dev, (free_mmio_data __user *)arg);
+    case EDU_IOCTL_SBI_SPDM_EXCHANGE:
+        return ioctl_spdm_sbi(dev, (struct edu_spdm_data __user *)arg);
     default:
         return -ENOTTY;
     }
