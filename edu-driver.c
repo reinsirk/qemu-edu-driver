@@ -55,8 +55,9 @@ module_param_named(debug, param_debug, bool, S_IRUGO | S_IWUSR);
 static bool param_msi;
 module_param_named(msi, param_msi, bool, S_IRUGO);
 
-struct edu_device
+struct edu_device 
 {
+    struct pci_dev *pdev;
     bool registered_irq_handler;
     bool added_cdev;
     struct cdev cdev;
@@ -103,7 +104,14 @@ static int edu_mmap(struct file *filp, struct vm_area_struct *vma)
     }
     vma->vm_page_prot = pgprot_noncached(vma->vm_page_prot);
     // VM_IO | VM_DONTEXPAND | VM_DONTDUMP are set by remap_pfn_range()
-    return vm_iomap_memory(vma, __pa(dev->dma_virt_addr), len);
+    // return vm_iomap_memory(vma, __pa(dev->dma_virt_addr), len);
+    return dma_mmap_coherent(
+        &dev->pdev->dev,
+        vma,
+        dev->dma_virt_addr,
+        dev->dma_bus_addr,
+        len
+    );
 }
 
 static int ioctl_ident(struct edu_device *dev, u32 __user *arg)
@@ -311,6 +319,8 @@ static int edu_pci_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
     {
         goto fail;
     }
+
+    edu_dev->pdev = pdev;
 
     // set up DMA mapping
     edu_dev->dma_virt_addr = dmam_alloc_coherent(
